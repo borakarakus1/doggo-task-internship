@@ -1,0 +1,61 @@
+/*
+identifiers of classes
+*/
+case class WalkingState(walkingId: UUID, ownerId: UUID, dogId: UUID, address: Address,
+                        deliveredBy: DeliveredBy, walkingType: ServiceType, status: OrderStatus,
+                        duration: Int, note: Option[String], doorKeeperPhone: Option[String], walks: Seq[Walk],
+                        operationalNote: Option[String])
+
+case class Walk(walkId: UUID, walkerId: Option[UUID], paymentId: Option[UUID],
+                status: WalkStatus, startTime: Option[DateTime], endTime: Option[DateTime],
+                checkinTime: Option[DateTime], checkoutTime: Option[DateTime], confirmTime: Option[DateTime],
+                heat: Option[Heat], ratingByOwner: Option[WalkRating], ratingByWalker: Option[WalkRating],
+                cancelledBy: Option[UserType], distance: Option[Double], paths: Seq[Geo], pins: Seq[WalkingPin],
+                ownerFeedback: Option[OwnerFeedBack], walkerFeedback: Option[WalkerFeedBack], cancelReason: Option[String])
+
+
+/* 
+An object called "WalkStatus" that extends "Enumeration" defines a set of fixed values that a variable of that type 
+can take on and provides a way to work with enumerations.
+WalkStatus has a type alias and some values defind as instances of "Value" and an implicit "Format" for some operating.
+*/
+object WalkStatus extends Enumeration {
+  type WalkStatus = Value
+  val Matched, Unmatched, Confirmed, Started, Finished, Cancelled, Halted = Value
+
+  implicit val format: Format[WalkStatus] = JsonFormats.enumFormat(this)
+}
+
+object OrderStatus extends Enumeration {
+  type OrderStatus = Value
+  val Requested, Started, Finished, Cancelled, Halted = Value
+
+  implicit val format: Format[OrderStatus] = JsonFormats.enumFormat(this)
+}
+
+/*
+a function called "onEventWalkCancelled" takes four parameters : 'walkId','cancelledBy','cancelReason','state'. 
+The function updates a Walk object with the given walkId in the state's WalkingState object. If found, 
+it sets the status to Cancelled, cancelledBy to the given value, and cancelReason to the given reason. 
+It then updates the WalkingState object's status based on the status of its Walk objects, and returns the updated WalkingState object.
+*/
+  private def onEventWalkCancelled(walkId: UUID, cancelledBy: UserType, cancelReason: Option[String], state: Option[WalkingState]): Option[WalkingState] = {
+    val walkingState: WalkingState = state.get
+    val walk: Option[Walk] = walkingState.walks.find(_.walkId == walkId)
+    val updatedWalk: Walk = walk.get.copy(status = WalkStatus.Cancelled, cancelledBy = Some(cancelledBy), cancelReason = cancelReason)
+    val updatedWalks: Seq[Walk] = walkingState.walks.filterNot(_.walkId == walkId) :+ updatedWalk
+
+    val allWalksHalted: Seq[Walk] = updatedWalks.filterNot(walk => walk.status == WalkStatus.Cancelled)
+    val newStatus: OrderStatus.Value = if (allWalksHalted.isEmpty) {
+      OrderStatus.Cancelled
+    } else if (allWalksHalted.forall(walk => walk.status == WalkStatus.Halted || walk.status == WalkStatus.Finished)) {
+      OrderStatus.Finished
+    } else {
+      OrderStatus.Started
+    }
+
+    Some(walkingState.copy(status = newStatus, walks = updatedWalks))
+  }
+
+
+
